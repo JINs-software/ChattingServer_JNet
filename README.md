@@ -14,7 +14,7 @@ JNetLibrary 구 버전 라이브러리인 CLanServer을 상속한 기존 프로�
 라이브러리의 채팅 메시지 패킷을 수신하는 멀티 IOCP 작업자 스레드와 채팅 서버의 메시지를 처리하는 싱글 스레드가 존재한다. IOCP 작업자 스레드는 수신 완료 통지(GetQueuedCompletionStatus) 시 채팅 서버가 재정의한 OnRecv 이벤트 함수를 호출함으로써 채팅 메시지 처리 스레드가 처리할 메시지 큐와 같은 매체에 Enqueue를 수행한다. 처리 스레드는 이를 Dequeue하여 채팅 메시지를 송신한 플레이어의 섹터 기준으로 자신을 포함해 주변 플레이어들에게 메시지를 전달하는 작업을 한다. 
 단일의 메시지 큐를 사용한다면, 이 큐를 기준으로 multi-writer, single-reader 구조가 된다. 
 
-<img src="https://github.com/user-attachments/assets/57ab80a6-966b-4bb9-873d-9a021b04cf54" alt="image" width="300"/>
+<img src="https://github.com/user-attachments/assets/57ab80a6-966b-4bb9-873d-9a021b04cf54" alt="image" width="600"/>
 
 본 채팅 서버는 먼저 싱글의 채팅 메시지 처리 스레드를 두는 것으로 시작하기에 채팅 서버에서 관리하는 플레이어들, 섹터 및 필드에 대한 자료구조 접근에 있어서 동기화 작업이 필요하지 않다. 따라서 multi-writer의 IOCP 작업자 스레드와 single-reader의 채팅 메시지 처리 스레드 간 발생할 수 있는 이슈들을 토대로 설계를 진행해 나갔다. 
 
@@ -25,17 +25,17 @@ JNetLibrary 구 버전 라이브러리인 CLanServer을 상속한 기존 프로�
 ### 채팅 서버 스레드 및 자료구조 설계
 #### Issue1. 단일 메시지 큐에 대한 고찰
 
-<img src="https://github.com/user-attachments/assets/6c14d2a4-a8db-415f-b425-d5b1cb28e3bb" alt="image" width="300"/>
+<img src="https://github.com/user-attachments/assets/6c14d2a4-a8db-415f-b425-d5b1cb28e3bb" alt="image" width="600"/>
 
 가장 간단한 구조는 IOCP 작업자 스레드들이 수신한 메시지를 채팅 메시지 처리 스레드가 처리할 단일의 메시지 큐에 삽입하는 방식이 될 것이다. 작업자 스레드들의 수신 완료 시 라이브브러리부터 호출될 OnRecv 이벤트 함수를 단일 메시지 큐에 삽입하는 코드로 재정의한다. 여기서 단일 큐는 물론 동기화 장치가 필요하다. 락-프리 큐를 사용할 수도 있고, 락을 사용할 수 있다. 초기 버전은 유저 모드 동기화 객체인 윈도우의 SRWLock을 사용하여 채팅 메시지 처리 스레드가 메시지 큐에 메시지 존재 여부 확인을 공유 모드의 락으로 잡(AcquireSRWLockShared) 확인하는 방식을 채택하였다(사실 단순 크기 확인이라면 락을 필요는 없을 것이다). 
 
 이 방식에서는 단일의 공용 큐에 대해 작업자 스레드들 간 Enqueue하는 과정에서의 병목이 불가피하다. 물론 큐(락-프리 큐)의 헤드 부를 기준으로 작업자 스레드의 Enqueue와 채팅 메시지 처리 스레드의 Dequeue에서의 경합도 발생할 수 있지만, 어찌되었든 메시지 처리 스레드는 처리할 메시지가 존재한 상황이어야 하는 것이고, 존재 여부 확인에 있어선 병목 없이 확인 가능한 것이고, Dequeue 과정에서는 락-프리 큐를 사용한다면 처리 메시지가 하나만 존재하지 않은 이상 Dequeue 과정에서 대기가 없을 것이다. 
 
-<img src="https://github.com/user-attachments/assets/c47f6ba1-3665-4004-be95-fd8b3107201a" alt="image" width="300"/>
+<img src="https://github.com/user-attachments/assets/c47f6ba1-3665-4004-be95-fd8b3107201a" alt="image" width="600"/>
 
 따라서 multi-writer인 작업자 스레드들 간의 경합을 피하는 구조를 고안하였고, 이는 작업자 스레드들 각각이 가지고 있는 메시지 큐를 두거나, 세션 별로 큐를 두는 방식이 될 수 있을 것이다. 
 
-<img src="https://github.com/user-attachments/assets/1e476360-8e00-4f7b-a61b-303116ef4b6e" alt="image" width="300"/>
+<img src="https://github.com/user-attachments/assets/1e476360-8e00-4f7b-a61b-303116ef4b6e" alt="image" width="600"/>
 
 #### Issue2. 채팅 메시지 처리 스레드의 작업 수행 트리거
 채팅 메시지 처리 스레드가 메시지 큐로 부터 Dequeue하여 처리 작업을 수행하는 방식에 대한 고려도 필요하였다.
@@ -44,7 +44,7 @@ IOCP 작업자 스레드들마다 맵핑된 메시지 큐가 존재한다는 가
 ##### (1) 단순 폴링(polling) 검사
 일단 가장 간단한 방식은 메시지 큐들을 폴링(polling)하며 메시지 존재 여부 확인 및 Dequeue를 하는 것이다. 
 
-<img src="https://github.com/user-attachments/assets/f3494aa1-ae0e-4098-b6d0-827b5cc33ae1" alt="image" width="300"/>
+<img src="https://github.com/user-attachments/assets/f3494aa1-ae0e-4098-b6d0-827b5cc33ae1" alt="image" width="600"/>
 
 가동 서버 환경에 코어에 대한 여유가 있다면 메시지 처리 스레드가 코어 하나를 점유하여 블록 상태없이 폴링하며 디큐잉을 시도할 수 있을 것이다. 
 다만 클라이언트들의 채팅 경향성에 따라 자원 낭비의 편차가 클 것으로 예측되었다. 채팅 메시지 송수신이 빈번하지 않은 상황이라면 송수신 완료 통지를 처리할 IOCP 작업자 스레드들은 한정될 것이다. IOCP 내부적으로 스택(stack) 방식으로 스레드들을 관리하기 때문이다.
@@ -53,27 +53,27 @@ IOCP 작업자 스레드들마다 맵핑된 메시지 큐가 존재한다는 가
 ##### (2) 이벤트 객체를 활용한 알림 방식
 IOCP 작업자 스레드들이 수신 및 메시지 Enqueue 작업을 마치면, 각 스레드 별로 맵핑된 이벤트 객체를 통해 수신 이벤트를 발생시킨다. 메시지 처리 스레드는 각 스레드들의 이벤트 객체들에 대해 대기(WaitForMultipleOjbects, 복수 이상의 이벤트 대기 API)를 통해 블록 상태로 수신을 기다리고, 이벤트를 통해 깨어나 메시지를 처리하는 것이다. 
 
-<img src="https://github.com/user-attachments/assets/ef0d98e6-ad09-4832-ad24-4e3abe7877bf" alt="image" width="300"/>
+<img src="https://github.com/user-attachments/assets/ef0d98e6-ad09-4832-ad24-4e3abe7877bf" alt="image" width="600"/>
 
 #### Issue3. 세션 별 메시지 큐
 메시지 큐의 분산 방식은 IOCP 작업자 스레드마다 둔 방식과 세션 별로 두는 방식으로 고안하였다. 세션 별 메시지 큐를 두는 방식은 세션의 생명 주기와 결부되기에 이보다 더 간단한 작업자 스레드 별 큐 구조를 먼저 도입하고자 하였으나 치명적인 문제가 있음을 간파하였다. 
 
 한 클라이언트에서 보내는 연속적인 메시지를 특정 IOCP 작업자 스레드가 완료 통지를 받고 수신 메시지를 Enqueue 한다는 보장이 없다는 것이다. 메시지가 큐에 들어가는 시간적 순서는 보장될 수 있으나 메시지 처리 스레드가 폴링 과정에서 뒤늦게 들어온 메시지를 먼저 처리할 수도 있으며, 이벤트 객체를 활용한 알림 방식이라 하더라도 이벤트 대기 함수의 이벤트 인자 인덱스 순서에 따라서도 메시지 수신의 시간적 순서를 보장할 수 없다. 
 
-<img src="https://github.com/user-attachments/assets/23edc451-83cd-457d-bf7f-b103a6319ef2" alt="image" width="300"/>
+<img src="https://github.com/user-attachments/assets/23edc451-83cd-457d-bf7f-b103a6319ef2" alt="image" width="600"/>
 
 따라서 메시지 큐의 분산은 세션 별로 맵핑된 형태가 되어야 한다는 결론을 내렸다. 앞서 언급한 세션의 생명 주기 결부 사안은 플레이어의 섹터 및 필드 이동 처리와 같은 작업이 있기에 어차피 동기화 작업은 필요한 상황이다. 
 
 #### 1안
 Issued 1/2/3에 대한 고려를 통해 만들어진 설계이다. 세션 별 메시지 큐에 더불어 어떤 세션의 메시지 큐에 채팅 메시지를 삽입하였는지 정보(stRecvInfo)를 담는 자료구조도 추가된다. 
 
-<img src="https://github.com/user-attachments/assets/1fa49e57-c10f-4053-b30c-c007fc0a4cf7" alt="image" width="300"/>
+<img src="https://github.com/user-attachments/assets/1fa49e57-c10f-4053-b30c-c007fc0a4cf7" alt="image" width="600"/>
 
 클라이언트로부터 패킷 수신 통지 완료 시 작업자 스레드는 OnRecv 함수를 호출한다. 이 함수에서는 (1) 세션 별 메시지 큐에 수신 메시지 Enqueue, (2) 작업자 스레드마다 맵핑된 이벤트 객체를 키로 하여 수신 정보(sessionID, messageCnt)를 수신 정보 큐에 삽입한다. 이벤트 객체는 작업자 스레드 고유의 TLS(Threaed Local Stoage)를 통해 참조하기에 경합이 없고, 이벤트 객체들은 서버 가동 초기화 과정에서 채팅 메시지 처리 스레드가 참조되도록 생성된다. 
 
 두 Enqueue 과정 후 이벤트 객체에 대해 SetEvent를 하여 채팅 처리 스레드가 작업을 할 수 있도록 깨운다. 
 
-<img src="https://github.com/user-attachments/assets/3ff46263-a9fb-41cc-ae0c-b9378e1e205f" alt="image" width="300"/>
+<img src="https://github.com/user-attachments/assets/3ff46263-a9fb-41cc-ae0c-b9378e1e205f" alt="image" width="600"/>
 
 깨어난 채팅 처리 스레드는 이벤트 대기 함수에 설정한 이벤트 인덱스를 바탕으로 이벤트 객체를 참조하여 수신 정보를 얻고, 세션 큐에 접근하여 처리할 채팅 메시지를 디큐잉하여 작업을 한다.
 
