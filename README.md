@@ -1,7 +1,14 @@
-# ChattingServer_JNet
-JNetLibrary 상속 채팅 서버
+#### 구 버전 프로젝트
 
-JNetLibrary 구 버전 라이브러리인 CLanServer을 상속한 기존 프로젝트 (https://github.com/JINs-software/ChattingServer) (7일 테스트 진행)
+구 버전 라이브러리인 CLanLibrary를 상속하여 구현한 ChattingServer: https://github.com/JINs-software/ChattingServer
+
+성능 및 기능 7일 테스트는 구 버전의 프로젝트로 진행
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/b1c78a96-d0fa-4ed7-96c6-583f00754ec7" width="600">
+</p>
+
+---
 
 ### \[개요\]
 세션 연결, 참조 그리고 생명 주기를 관리하고, 비동기 네트워크 송신 함수 제공 및 수신 시 이벤트 함수를 호출해주어 네트워킹 작업을 추상화하는 JNetLibrary를 상속하여 채팅 서버를 구현하였다. 
@@ -16,6 +23,8 @@ JNetLibrary 구 버전 라이브러리인 CLanServer을 상속한 기존 프로�
 단순한 구조에서부터 시작하여 추가적인 자료구조를 통한 성능 향상을 꾀하고자 하는 구조를 고안해보았으며, 채팅 더미 클라이언트로 테스트하며 클라이언트의 경향에 따라 설계 방향이 복구되거나 변경될 수 있음을 파악하였다. 
 
 앞으로의 내용들은 단일 메시지 큐 구조에서부터 발생할 수 있는 이슈들을 토대로 설계 진행 과정을 요악한 것이다.
+
+---
 
 ### 채팅 서버 스레드 및 자료구조 설계
 #### Issue1. 단일 메시지 큐에 대한 고찰
@@ -58,6 +67,8 @@ IOCP 작업자 스레드들이 수신 및 메시지 Enqueue 작업을 마치면,
 <img src="https://github.com/user-attachments/assets/23edc451-83cd-457d-bf7f-b103a6319ef2" alt="image" width="600"/>
 
 따라서 메시지 큐의 분산은 세션 별로 맵핑된 형태가 되어야 한다는 결론을 내렸다. 앞서 언급한 세션의 생명 주기 결부 사안은 플레이어의 섹터 및 필드 이동 처리와 같은 작업이 있기에 어차피 동기화 작업은 필요한 상황이다. 
+
+---
 
 #### 1안
 Issued 1/2/3에 대한 고려를 통해 만들어진 설계이다. 세션 별 메시지 큐에 더불어 어떤 세션의 메시지 큐에 채팅 메시지를 삽입하였는지 정보(stRecvInfo)를 담는 자료구조도 추가된다. 
