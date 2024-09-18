@@ -3,11 +3,6 @@ JNetLibrary 상속 채팅 서버
 
 JNetLibrary 구 버전 라이브러리인 CLanServer을 상속한 기존 프로젝트 (https://github.com/JINs-software/ChattingServer) (7일 테스트 진행)
 
-# ChattingServer_JNet
-JNetLibrary 상속 채팅 서버
-
-JNetLibrary 구 버전 라이브러리인 CLanServer을 상속한 기존 프로젝트 (https://github.com/JINs-software/ChattingServer) (7일 테스트 진행)
-
 ### \[개요\]
 세션 연결, 참조 그리고 생명 주기를 관리하고, 비동기 네트워크 송신 함수 제공 및 수신 시 이벤트 함수를 호출해주어 네트워킹 작업을 추상화하는 JNetLibrary를 상속하여 채팅 서버를 구현하였다. 
 
