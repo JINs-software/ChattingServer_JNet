@@ -67,9 +67,10 @@ bool ChattingServer::OnWorkerThreadCreate(HANDLE thHnd)
 #if defined(PROCESSING_THREAD_WAKE_BY_WORKERS_TLS_EVENT)
 	static uint16 eventIdx = 0;
 	HANDLE recvEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-	m_WorkersRecvEvents[eventIdx++] = recvEvent;
+	m_WorkersRecvEvents[eventIdx++] = recvEvent;				// m_WorkersRecvEvents, 채팅 메시지 프로세싱 스레드가 참조
 	DWORD thID = GetThreadId(thHnd);
-	m_ThrdEventHndMap.insert({ thID, recvEvent });
+	m_ThrdEventHndMap.insert({ thID, recvEvent });			// m_ThrdEventHndMap, IOCP 작업자 스레드의 OnWorkerThreadStart 호출 내
+																// 스레드 자신의 id를 바탕으로 이벤트 객체 핸들을 가져와 TLS에 삽입할 때 참조
 #else	// PROCESSING_THREAD_POLLING_SINGLE_MESSAGE_QUEUE
 	return true;
 #endif
@@ -87,8 +88,9 @@ void ChattingServer::OnWorkerThreadStart()
 	if (TlsGetValue(m_RecvEventTlsIndex) == NULL) {
 		DWORD thID = GetThreadId(GetCurrentThread());
 		HANDLE thEventHnd = m_ThrdEventHndMap[thID];
-		TlsSetValue(m_RecvEventTlsIndex, thEventHnd);
+		TlsSetValue(m_RecvEventTlsIndex, thEventHnd);					
 		m_ThrdEventRecvInfoMap.insert({ thEventHnd, LockFreeQueue<stRecvInfo>() });
+		// => IOCP 작업자 스레드는 자신의 TLS에 미리 생성된 이벤트 객체 핸들(IOCP 작업자 별 미리 생성된)을 TLS에 저장
 	}
 #if defined(ASSERT)
 	else {
@@ -182,11 +184,34 @@ void ChattingServer::OnRecv(UINT64 sessionID, JBuffer& recvBuff)
 		break;
 	}
 
+#if defined(PROCESSING_THREAD_WAKE_BY_WORKERS_TLS_EVENT)
+	// enqueue msg to session's msg queue
+	bool enqFlag = false;
+	AcquireSRWLockShared(&m_SessionMessageQueueLock);
+	auto iter = m_SessionMessageQueue.find(sessionID);
+	if (iter != m_SessionMessageQueue.end()) {
+		iter->second.Enqueue(message);
+		enqFlag = true;
+	}
+	else {
+		FreeSerialBuff(message);
+	}
+	ReleaseSRWLockShared(&m_SessionMessageQueueLock);
+
+	if (enqFlag) {
+		HANDLE recvEvent = (HANDLE)TlsGetValue(m_RecvEventTlsIndex);
+		m_ThrdEventRecvInfoMap[recvEvent].Enqueue(stRecvInfo{ sessionID, 1 });
+		SetEvent(recvEvent);
+	}
+#else	// PROCESSING_THREAD_POLLING_SINGLE_MESSAGE_QUEUE
 	m_MessageLockFreeQueue.Enqueue({ {sessionID, clock() }, message });
+#endif
 }
 
 void ChattingServer::OnRecv(UINT64 sessionID, JSerialBuffer& recvBuff)
 {
+	LONG recvMsgCnt = 0;
+
 	while (recvBuff.GetUseSize() > sizeof(WORD)) {
 		WORD type;
 		recvBuff.Peek((BYTE*)&type, sizeof(type));
@@ -227,8 +252,30 @@ void ChattingServer::OnRecv(UINT64 sessionID, JSerialBuffer& recvBuff)
 			break;
 		}
 
+#if defined(PROCESSING_THREAD_WAKE_BY_WORKERS_TLS_EVENT)
+		AcquireSRWLockShared(&m_SessionMessageQueueLock);
+		auto iter = m_SessionMessageQueue.find(sessionID);
+		if (iter != m_SessionMessageQueue.end()) {
+			iter->second.Enqueue(message);
+			recvMsgCnt++;
+		}
+		else {
+			FreeSerialBuff(message);
+		}
+		ReleaseSRWLockShared(&m_SessionMessageQueueLock);
+#else
 		m_MessageLockFreeQueue.Enqueue({ {sessionID, clock()}, message });
+#endif
 	}
+
+#if defined(PROCESSING_THREAD_WAKE_BY_WORKERS_TLS_EVENT)
+	if (recvMsgCnt > 0) {
+		HANDLE recvEvent = (HANDLE)TlsGetValue(m_RecvEventTlsIndex);
+		m_ThrdEventRecvInfoMap[recvEvent].Enqueue(stRecvInfo{ sessionID, recvMsgCnt });
+		SetEvent(recvEvent);
+	}
+#endif
+
 }
 
 void ChattingServer::OnPrintLogOnConsole()

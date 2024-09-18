@@ -91,9 +91,15 @@ public:
 	void Stop();
 
 	bool ServerStop() { return m_StopFlag; }
-	int GetUpdateThreadTransaction() { return m_UpdateThreadTransaction; m_UpdateThreadTransaction = 0;}
-	int GetUpdateMessageQueueSize() { return m_MessageLockFreeQueue.GetSize(); }
-	int GetPlayerCount() { return m_SessionIdAccountMap.size(); }
+	inline int GetUpdateThreadTransaction() { return m_UpdateThreadTransaction; m_UpdateThreadTransaction = 0;}
+	inline int GetUpdateMessageQueueSize() {
+#if defined(PROCESSING_THREAD_WAKE_BY_WORKERS_TLS_EVENT)
+		return 0;
+#else	// PROCESSING_THREAD_POLLING_SINGLE_MESSAGE_QUEUE
+		return m_MessageLockFreeQueue.GetSize(); 
+#endif
+	}
+	inline int GetPlayerCount() { return m_SessionIdAccountMap.size(); }
 
 private:
 	virtual bool OnWorkerThreadCreate(HANDLE thHnd) override;
