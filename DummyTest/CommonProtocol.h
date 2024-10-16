@@ -1,6 +1,7 @@
-#pragma once
+//#ifndef __GODDAMNBUG_ONLINE_PROTOCOL__
+//#define __GODDAMNBUG_ONLINE_PROTOCOL__
 
-#include <minwindef.h>
+// 섹터 50 x 50
 
 enum en_PACKET_TYPE
 {
@@ -13,7 +14,7 @@ enum en_PACKET_TYPE
 	//------------------------------------------------------
 	// Chatting Server
 	//------------------------------------------------------
-	en_PACKET_CS_CHAT_SERVER = 0,
+	en_PACKET_CS_CHAT_SERVER			= 0,
 
 	//------------------------------------------------------------
 	// 채팅서버 로그인 요청
@@ -115,71 +116,8 @@ enum en_PACKET_TYPE
 	//------------------------------------------------------------	
 	en_PACKET_CS_CHAT_REQ_HEARTBEAT,
 
-	en_SESSION_JOIN,
-	en_SESSION_RELEASE,
-	//en_SESSION_RELEASE_BEFORE_LOGIN
-};
 
-enum en_Login_Status 
-{
-	FAIL,
-	SUCCESS
-};
-
-#pragma pack(push, 1)
-struct MSG_PACKET_CS_CHAT_REQ_LOGIN {
-	WORD Type;
-	INT64 AccountNo;
-	WCHAR ID[20];			// null 포함
-	WCHAR Nickname[20];		// null 포함
-	char sessionKey[64];		// 인증 토큰
-};
-struct MSG_PACKET_CS_CHAT_RES_LOGIN {
-	WORD	Type;
-	BYTE	Status;				// 0:실패	1:성공
-	INT64	AccountNo;
-};
-struct MSG_PACKET_CS_CHAT_REQ_SECTOR_MOVE {
-	WORD	Type;
-	INT64	AccountNo;
-	WORD	SectorX;
-	WORD	SectorY;
-};
-struct MSG_PACKET_CS_CHAT_RES_SECTOR_MOVE {
-	WORD	Type;
-	INT64	AccountNo;
-	WORD	SectorX;
-	WORD	SectorY;
-};
-struct MSG_PACKET_CS_CHAT_REQ_MESSAGE {
-	WORD	Type;
-	INT64	AccountNo;
-	WORD	MessageLen;
-
-	//WCHAR	Message[MessageLen / 2];		// null 미포함
-	//WCHAR* Message;
-};
-struct MSG_PACKET_CS_CHAT_RES_MESSAGE {
-	WORD	Type;
-	INT64	AccountNo;
-	WCHAR	ID[20];						// null 포함
-	WCHAR	Nickname[20];				// null 포함
-
-	WORD	MessageLen;
-
-	//WCHAR	Message[MessageLen / 2];		// null 미포함
-	//WCHAR* Message;
-};
-struct MSG_PACKET_CS_CHAT_REQ_HEARTBEAT {
-	WORD		Type;
-};
-
-struct stMSG_MONITOR_DATA_UPDATE {
-	WORD	Type;
-	BYTE	DataType;
-	int		DataValue;
-	int		TimeStamp;
 
 };
 
-#pragma pack(pop)
+//#endif

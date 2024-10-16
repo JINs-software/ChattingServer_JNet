@@ -68,7 +68,6 @@ public:
 		maximumOfSessions,
 		numOfIocpConcurrentThrd, numOfIocpWorkerThrd,
 		tlsMemPoolUnitCnt, tlsMemPoolUnitCapacity,
-		true, false,
 		memPoolBuffAllocSize,
 		sessionRecvBuffSize,
 		calcTpsThread

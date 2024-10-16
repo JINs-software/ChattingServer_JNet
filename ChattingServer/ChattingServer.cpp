@@ -37,7 +37,6 @@ bool ChattingServer::Start()
 		MONT_SERVER_PROTOCOL_CODE,
 		MONT_CLIENT_IOCP_CONCURRENT_THRD, MONT_CLIENT_IOCP_WORKER_THRD_CNT,
 		MONT_CLIENT_MEM_POOL_UNIT_CNT, MONT_CLIENT_MEM_POOL_UNIT_CAPACITY,
-		false, false,
 		MONT_CLIENT_MEM_POOL_BUFF_ALLOC_SIZE,
 		MONT_CLIENT_RECV_BUFF_SIZE
 		);
@@ -71,6 +70,7 @@ bool ChattingServer::OnWorkerThreadCreate(HANDLE thHnd)
 	DWORD thID = GetThreadId(thHnd);
 	m_ThrdEventHndMap.insert({ thID, recvEvent });			// m_ThrdEventHndMap, IOCP 작업자 스레드의 OnWorkerThreadStart 호출 내
 																// 스레드 자신의 id를 바탕으로 이벤트 객체 핸들을 가져와 TLS에 삽입할 때 참조
+	return true;
 #else	// PROCESSING_THREAD_POLLING_SINGLE_MESSAGE_QUEUE
 	return true;
 #endif
@@ -348,7 +348,7 @@ void ChattingServer::Proc_REQ_LOGIN(UINT64 sessionID, MSG_PACKET_CS_CHAT_REQ_LOG
 	}
 
 	if (!releaseBeforeLogin) {
-		BYTE loginStatus = 1;
+		BYTE loginStatus = en_Login_Status::SUCCESS;
 
 		std::string accountNoStr = to_string(body.AccountNo);
 		std::string sessionKey = "";
@@ -363,24 +363,23 @@ void ChattingServer::Proc_REQ_LOGIN(UINT64 sessionID, MSG_PACKET_CS_CHAT_REQ_LOG
 			}
 
 			if (!redisConn->get(accountNoStr, sessionKey)) {
-				loginStatus = 0;
+				loginStatus = en_Login_Status::FAIL;
 				DebugBreak();
 			}
 			else {
 				uint32_t ret;
 				if (!redisConn->del(accountNoStr, ret)) {
-					loginStatus = 0;
+					loginStatus = en_Login_Status::FAIL;
 					DebugBreak();
 				}
 			}
 			m_RedisConnPool.Enqueue(redisConn);
-		}
 
-		if (memcmp(body.sessionKey, sessionKey.c_str(), sizeof(body.sessionKey)) != 0) {
-			loginStatus = 0;
-			DebugBreak();
+			if (memcmp(body.sessionKey, sessionKey.c_str(), sizeof(body.sessionKey)) != 0) {
+				loginStatus = en_Login_Status::FAIL;
+				DebugBreak();
+			}
 		}
-
 		if (loginStatus == 0) {
 			Send_RES_LOGIN(sessionID, loginStatus, body.AccountNo);
 			return;
@@ -396,17 +395,14 @@ void ChattingServer::Proc_REQ_LOGIN(UINT64 sessionID, MSG_PACKET_CS_CHAT_REQ_LOG
 		memcpy(accountInfo, &body.AccountNo, sizeof(stAccoutInfo));
 		accountInfo->X = -1;
 		m_SessionIdAccountMap.insert({ sessionID, accountInfo });
-
-		loginStatus = 1;
 		Send_RES_LOGIN(sessionID, loginStatus, accountInfo->AccountNo);
-
 	}
 }
 
 void ChattingServer::Send_RES_LOGIN(UINT64 sessionID, BYTE STATUS, INT64 AccountNo)
 {
 	JBuffer* reply = AllocSerialSendBuff(sizeof(MSG_PACKET_CS_CHAT_RES_LOGIN));
-	(*reply) << (WORD)en_PACKET_CS_CHAT_REQ_LOGIN << STATUS << AccountNo;
+	(*reply) << (WORD)en_PACKET_CS_CHAT_RES_LOGIN << STATUS << AccountNo;
 	if (!SendPacket(sessionID, reply)) {
 		FreeSerialBuff(reply);
 	}
@@ -478,7 +474,7 @@ void ChattingServer::Proc_REQ_MESSAGE(UINT64 sessionID, MSG_PACKET_CS_CHAT_REQ_M
 			for (auto iter = sector.begin(); iter != sector.end(); iter++) {
 				AddRefSerialBuff(reply);
 				if (iter->first == sessionID) {
-					if (!SendPacket(sessionID, reply, false, true)) FreeSerialBuff(reply);
+					if (!SendPacket(sessionID, reply, true, false)) FreeSerialBuff(reply);
 					else  iter->second->sendDelayed = false;
 				}
 				else {
@@ -489,6 +485,8 @@ void ChattingServer::Proc_REQ_MESSAGE(UINT64 sessionID, MSG_PACKET_CS_CHAT_REQ_M
 			}
 		}
 	}
+
+	FreeSerialBuff(reply);
 }
 
 void ChattingServer::Proc_SessionJoin(UINT64 sessionID)
@@ -527,9 +525,10 @@ void ChattingServer::Proc_SessionRelease(UINT64 sessionID)
 UINT __stdcall ChattingServer::ProcessThreadFunc(void* arg)
 {
 	ChattingServer* server = reinterpret_cast<ChattingServer*>(arg);
+	server->AllocTlsMemPool();
 
 	clock_t timestamp = clock();
-	while (server->m_StopFlag) {
+	while (!server->m_StopFlag) {
 #if defined(PROCESSING_THREAD_WAKE_BY_WORKERS_TLS_EVENT)
 		DWORD ret = WaitForMultipleObjects(CHATTING_SERVER_IOCP_WORKER_THREAD, server->m_WorkersRecvEvents, FALSE, INFINITE);
 		if (WAIT_OBJECT_0 <= ret && ret < WAIT_OBJECT_0 + CHATTING_SERVER_IOCP_WORKER_THREAD) {
@@ -550,10 +549,20 @@ UINT __stdcall ChattingServer::ProcessThreadFunc(void* arg)
 			}
 		}
 #else	// PROCESSING_THREAD_POLLING_SINGLE_MESSAGE_QUEUE
-		LONG messageQueueSize = server->m_MessageLockFreeQueue.GetSize();
-		if (messageQueueSize > 0) {
-			--messageQueueSize;
-
+//		LONG messageQueueSize = server->m_MessageLockFreeQueue.GetSize();
+//		if (messageQueueSize > 0) {
+//			--messageQueueSize;
+//
+//			pair<SessionTimeStamp, JBuffer*> jobMsg;
+//			if (!server->m_MessageLockFreeQueue.Dequeue(jobMsg, true)) {
+//#if defined(ASSERT)
+//				DebugBreak();
+//#endif
+//				break;
+//			}
+//			server->ProcessMessage(jobMsg.first.sessionID, jobMsg.second);
+//		}
+		while (server->m_MessageLockFreeQueue.GetSize() > 0) {
 			pair<SessionTimeStamp, JBuffer*> jobMsg;
 			if (!server->m_MessageLockFreeQueue.Dequeue(jobMsg, true)) {
 #if defined(ASSERT)
@@ -561,7 +570,7 @@ UINT __stdcall ChattingServer::ProcessThreadFunc(void* arg)
 #endif
 				break;
 			}
-			server->ProcessMessage(jobMsg.first.sessionID, jobMsg.second);
+			server->ProcessMessage(jobMsg.first.sessionID, jobMsg.second);			
 		}
 #endif
 	}
