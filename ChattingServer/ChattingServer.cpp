@@ -106,6 +106,12 @@ void ChattingServer::OnClientJoin(UINT64 sessionID, const SOCKADDR_IN& clientSoc
 	AcquireSRWLockExclusive(&m_SessionMessageQueueLock);
 	m_SessionMessageQueue.insert({ sessionID, LockFreeQueue<JBuffer*>() });
 	ReleaseSRWLockExclusive(&m_SessionMessageQueueLock);
+
+#if defined(ASSERT)
+	if (m_LoginWaitSessions.find(sessionID) != m_LoginWaitSessions.end()) DebugBreak();
+#endif
+	m_LoginWaitSessions.insert(sessionID);
+
 #else
 	JBuffer* msg = AllocSerialBuff();
 	*msg << (WORD)en_SESSION_JOIN;
@@ -115,28 +121,28 @@ void ChattingServer::OnClientJoin(UINT64 sessionID, const SOCKADDR_IN& clientSoc
 
 void ChattingServer::OnClientLeave(UINT64 sessionID)
 {
+	JBuffer* msg = AllocSerialBuff();
+	*msg << (WORD)en_SESSION_RELEASE;
+
 #if defined(PROCESSING_THREAD_WAKE_BY_WORKERS_TLS_EVENT)
-	auto iter = m_SessionMessageQueue.find(sessionID);
 	AcquireSRWLockShared(&m_SessionMessageQueueLock);
+	auto iter = m_SessionMessageQueue.find(sessionID);
 	if (iter != m_SessionMessageQueue.end()) {
-		LockFreeQueue<JBuffer*>& msgQueue = iter->second;
-		while (msgQueue.GetSize() > 0) {
-			JBuffer* msg;
-			if (msgQueue.Dequeue(msg)) {
-				FreeSerialBuff(msg);
-			}
-		}
+		iter->second.Enqueue(msg);
+	}
+	else {
+#if defined(ASSERT)
+		DebugBreak();
+#endif
+		FreeSerialBuff(msg);
+		return;
 	}
 	ReleaseSRWLockShared(&m_SessionMessageQueueLock);
 
-	AcquireSRWLockExclusive(&m_SessionMessageQueueLock);
-	if (iter != m_SessionMessageQueue.end()) {
-		m_SessionMessageQueue.erase(iter);
-	}
-	ReleaseSRWLockExclusive(&m_SessionMessageQueueLock);
+	HANDLE recvEvent = (HANDLE)TlsGetValue(m_RecvEventTlsIndex);
+	m_ThrdEventRecvInfoMap[recvEvent].Enqueue(stRecvInfo{ sessionID, 1 });
+	SetEvent(recvEvent);
 #else	// PROCESSING_THREAD_POLLING_SINGLE_MESSAGE_QUEUE
-	JBuffer* msg = AllocSerialBuff();
-	*msg << (WORD)en_SESSION_RELEASE;
 	m_MessageLockFreeQueue.Enqueue({ {sessionID, clock()}, msg });
 #endif
 }
@@ -194,6 +200,9 @@ void ChattingServer::OnRecv(UINT64 sessionID, JBuffer& recvBuff)
 		enqFlag = true;
 	}
 	else {
+#if defined(ASSERT)
+		DebugBreak();
+#endif
 		FreeSerialBuff(message);
 	}
 	ReleaseSRWLockShared(&m_SessionMessageQueueLock);
@@ -520,6 +529,27 @@ void ChattingServer::Proc_SessionRelease(UINT64 sessionID)
 		m_SessionIdAccountMap.erase(sessionID);
 		m_AccountPool->Free(accountInfo);
 	}
+
+#if defined(PROCESSING_THREAD_WAKE_BY_WORKERS_TLS_EVENT)
+	auto siter = m_SessionMessageQueue.find(sessionID);
+	AcquireSRWLockShared(&m_SessionMessageQueueLock);
+	if (siter != m_SessionMessageQueue.end()) {
+		LockFreeQueue<JBuffer*>& msgQueue = siter->second;
+		while (msgQueue.GetSize() > 0) {
+			JBuffer* msg;
+			if (msgQueue.Dequeue(msg)) {
+				FreeSerialBuff(msg);
+			}
+		}
+	}
+	ReleaseSRWLockShared(&m_SessionMessageQueueLock);
+
+	AcquireSRWLockExclusive(&m_SessionMessageQueueLock);
+	if (siter != m_SessionMessageQueue.end()) {
+		m_SessionMessageQueue.erase(siter);
+	}
+	ReleaseSRWLockExclusive(&m_SessionMessageQueueLock);
+#endif
 }
 
 UINT __stdcall ChattingServer::ProcessThreadFunc(void* arg)
@@ -539,6 +569,12 @@ UINT __stdcall ChattingServer::ProcessThreadFunc(void* arg)
 			for (; recvInfoQueueSize > 0; recvInfoQueueSize--) {
 				stRecvInfo recvInfo;
 				recvInfoQueue.Dequeue(recvInfo, true);
+
+#if defined(ASSERT)
+				if (server->m_SessionMessageQueue.find(recvInfo.sessionID) == server->m_SessionMessageQueue.end()) {
+					DebugBreak();
+				}
+#endif
 
 				LockFreeQueue<JBuffer*>& sessionMessageQueue = server->m_SessionMessageQueue[recvInfo.sessionID];
 				for (; recvInfo.recvMsgCnt > 0; recvInfo.recvMsgCnt--) {

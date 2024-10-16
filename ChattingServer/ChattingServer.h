@@ -19,9 +19,11 @@ private:
 	bool										m_StopFlag;
 	int											m_UpdateThreadTransaction;
 
+	std::set<SessionID64>						m_LoginWaitSessions;
+
 	AccountObjectPool*							m_AccountPool;
 	std::unordered_map<uint64, stAccoutInfo*>	m_SessionIdAccountMap;
-	std::set<uint64>							m_LoginWaitSessions;
+
 	std::map<uint64, stAccoutInfo*> m_SectorMap[dfSECTOR_Y_MAX + 1][dfSECTOR_X_MAX + 1];
 
 	LockFreeQueue<RedisCpp::CRedisConn*>		m_RedisConnPool;
@@ -31,6 +33,8 @@ private:
 	ChattingServerMont*							m_ChatServerMont;
 
 #if defined(PROCESSING_THREAD_WAKE_BY_WORKERS_TLS_EVENT)
+	std::mutex									m_LoginWaitSetMtx;	// insert: accept thread, erase: iocp workers
+
 	struct stRecvInfo {
 		uint64	sessionID;
 		long	recvMsgCnt;

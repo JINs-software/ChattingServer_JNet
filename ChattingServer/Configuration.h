@@ -44,9 +44,9 @@
 /// @def 필드 Y 범위
 #define dfSECTOR_Y_MAX								50
 /// @def 싱글 프로세싱 스레드 + 싱글 메시지 큐 구조
-#define PROCESSING_THREAD_POLLING_SINGLE_MESSAGE_QUEUE
+//#define PROCESSING_THREAD_POLLING_SINGLE_MESSAGE_QUEUE
 /// @def 싱글 프로세싱 스레드 + EVENT 활용 구조
-//#define PROCESSING_THREAD_WAKE_BY_WORKERS_TLS_EVENT
+#define PROCESSING_THREAD_WAKE_BY_WORKERS_TLS_EVENT
 /// @def Redis 토큰 서버 IP
 #define TOKEN_AUTH_REDIS_IP							"10.0.2.2"
 /// @def Redis 토큰 서버 포트 번호
