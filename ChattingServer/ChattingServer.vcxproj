@@ -138,7 +138,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(SolutionDir)\Library\JNetLibrary\lib\$(Configuration)\JNetLibrary.lib;$(SolutionDir)\Library\LockFree\lib\$(Configuration)\LockFreeMemoryPool.lib;$(SolutionDir)\Library\PerformanceCounter\lib\$(Configuration)\PerformanceCounter.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)\Library\JNetLibrary\lib\$(Configuration)\JNetLibrary.lib;$(SolutionDir)\Library\LockFree\lib\$(Configuration)\LockFree.lib;$(SolutionDir)\Library\PerformanceCounter\lib\$(Configuration)\PerformanceCounter.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
