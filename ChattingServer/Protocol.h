@@ -1,6 +1,75 @@
 #pragma once
 
 #include <minwindef.h>
+#include "Configuration.h"
+
+#if defined(MOW_CHAT_SERVER_MODE)
+#define TOKEN_LENGTH					20
+#define MAX_OF_CHAT_LENGTH				100
+
+enum enPacketType {
+	CHAT_PACKET_TYPE = 15000,
+	REQ_LOGIN,
+	REQ_ENTER_MATCH,
+	REQ_LEAVE_MATCH,
+	REPLY_CODE,
+	SEND_CHAT_MSG,
+	RECV_CHAT_MSG,
+
+	en_PACKET_SS_MONITOR = 20000,
+	en_PACKET_SS_MONITOR_LOGIN,
+	en_PACKET_SS_MONITOR_DATA_UPDATE,
+	en_PACKET_CS_MONITOR = 25000,
+	en_PACKET_CS_MONITOR_TOOL_REQ_LOGIN,
+	en_PACKET_CS_MONITOR_TOOL_RES_LOGIN,
+	en_PACKET_CS_MONITOR_TOOL_DATA_UPDATE,
+
+	en_SESSION_JOIN = 30000,
+	en_SESSION_RELEASE,
+};
+
+enum enReplyCode {
+	LOGIN_SUCCESS,
+	LOGIN_FAIL,
+};
+
+#pragma pack(push, 1)
+struct MSG_REQ_LOGIN {
+	UINT16	Type;
+	UINT16	AccountNo;
+	WCHAR	Token[TOKEN_LENGTH];
+	INT32	TokenLength;
+};
+
+struct MSG_REQ_ENTER_MATCH {
+	UINT16	Type;
+	UINT16	RoomID;
+};
+
+struct MSG_REQ_LEAVE_MATCH {
+	UINT16	Type;
+};
+
+struct MSG_REPLY_CODE {
+	UINT16	Type;
+	UINT16	ReplyCode;
+};
+
+struct MSG_SEND_CHAT_MSG {
+	UINT16	Type;
+	WCHAR	ChatMsg[MAX_OF_CHAT_LENGTH];
+	INT32	Length;
+};
+
+struct MSG_RECV_CHAT_MSG {
+	UINT16	Type;
+	WCHAR	ChatMsg[MAX_OF_CHAT_LENGTH];
+	INT32	Length;
+	UINT16	AccountNo;
+};
+#pragma pack(pop)
+
+#else
 
 enum en_PACKET_TYPE
 {
@@ -174,6 +243,10 @@ struct MSG_PACKET_CS_CHAT_REQ_HEARTBEAT {
 	WORD		Type;
 };
 
+#pragma pack(pop)
+#endif
+
+#pragma pack(push, 1)
 struct stMSG_MONITOR_DATA_UPDATE {
 	WORD	Type;
 	BYTE	DataType;
@@ -181,5 +254,22 @@ struct stMSG_MONITOR_DATA_UPDATE {
 	int		TimeStamp;
 
 };
-
 #pragma pack(pop)
+
+enum en_PACKET_SS_MONITOR_DATA_UPDATE {
+	dfMONITOR_DATA_TYPE_CHAT_SERVER_RUN = 30,		// 채팅서버 ChatServer 실행 여부 ON / OFF
+	dfMONITOR_DATA_TYPE_CHAT_SERVER_CPU = 31,		// 채팅서버 ChatServer CPU 사용률
+	dfMONITOR_DATA_TYPE_CHAT_SERVER_MEM = 32,		// 채팅서버 ChatServer 메모리 사용 MByte
+	dfMONITOR_DATA_TYPE_CHAT_SESSION = 33,			// 채팅서버 세션 수 (컨넥션 수)
+	dfMONITOR_DATA_TYPE_CHAT_PLAYER = 34,			// 채팅서버 인증성공 사용자 수 (실제 접속자)
+	dfMONITOR_DATA_TYPE_CHAT_UPDATE_TPS = 35,		// 채팅서버 UPDATE 스레드 초당 초리 횟수
+	dfMONITOR_DATA_TYPE_CHAT_PACKET_POOL = 36,		// 채팅서버 패킷풀 사용량
+	dfMONITOR_DATA_TYPE_CHAT_UPDATEMSG_POOL = 37,	// 채팅서버 UPDATE MSG 풀 사용량
+	dfMONITOR_DATA_TYPE_CHAT_UPDATE_WORKER_CPU = 38,	// 채팅서버 UPDATE MSG 풀 사용량
+};
+enum en_SERVER_TYPE {
+	dfSERVER_LOGIN_SERVER = 0,
+	dfSERVER_ECHO_GAME_SERVER,
+	dfSERVER_CHAT_SERVER,
+	dfSERVER_SYSTEM
+};

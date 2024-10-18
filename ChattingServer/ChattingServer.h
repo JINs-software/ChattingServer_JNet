@@ -20,11 +20,8 @@ private:
 	int											m_UpdateThreadTransaction;
 
 	std::set<SessionID64>						m_LoginWaitSessions;
-
 	AccountObjectPool*							m_AccountPool;
-	std::unordered_map<uint64, stAccoutInfo*>	m_SessionIdAccountMap;
-
-	std::map<uint64, stAccoutInfo*> m_SectorMap[dfSECTOR_Y_MAX + 1][dfSECTOR_X_MAX + 1];
+	std::unordered_map<SessionID64, stAccoutInfo*>	m_SessionIdAccountMap;
 
 	LockFreeQueue<RedisCpp::CRedisConn*>		m_RedisConnPool;
 
@@ -51,6 +48,14 @@ private:
 		clock_t timeStamp;
 	};
 	LockFreeQueue<std::pair<SessionTimeStamp, JBuffer*>>				m_MessageLockFreeQueue;
+#endif
+
+#if defined(MOW_CHAT_SERVER_MODE)
+	std::set<SessionID64>									m_LobbyMap;
+	std::unordered_map<SessionID64, uint16>					m_SessionMatchMap;
+	std::unordered_map<uint16, std::set<SessionID64>>		m_MatchRoomMap;
+#else
+	std::map<uint64, stAccoutInfo*> m_SectorMap[dfSECTOR_Y_MAX + 1][dfSECTOR_X_MAX + 1];
 #endif
 
 public: 
@@ -116,6 +121,17 @@ private:
 	virtual void OnRecv(UINT64 sessionID, JSerialBuffer& recvBuff) override;
 	virtual void OnPrintLogOnConsole() override;
 private:
+#if defined(MOW_CHAT_SERVER_MODE)
+	void ProcessMessage(uint64 sessionID, JBuffer* msg);
+
+	void Proc_REQ_LOGIN(SessionID64 sessionID, const MSG_REQ_LOGIN& body);
+	void Proc_REQ_ENTER_MATCH(SessionID64 sessionID, const MSG_REQ_ENTER_MATCH& body);
+	void Proc_REQ_LEAVE_MATCH(SessionID64 sessionID, const MSG_REQ_LEAVE_MATCH& body);
+	void Proc_SEND_CHAT_MSG(SessionID64 sessionID, const MSG_SEND_CHAT_MSG& body);
+
+	void Send_REPLY_CODE(SessionID64 sessionID, uint16 replyCode);
+	//void Send_CHAT_MSG(SessionID64 sessionID, const MSG_SEND_CHAT_MSG& body);
+#else
 	void ProcessMessage(uint64 sessionID, JBuffer* msg);
 
 	void Proc_REQ_LOGIN(UINT64 sessionID, MSG_PACKET_CS_CHAT_REQ_LOGIN& body);
@@ -123,6 +139,7 @@ private:
 	void Proc_REQ_SECTOR_MOVE(UINT64 sessionID, MSG_PACKET_CS_CHAT_REQ_SECTOR_MOVE& body);
 	void Send_RES_SECTOR_MOVE(UINT64 sessionID, INT64 AccountNo, WORD SectorX, WORD SectorY);
 	void Proc_REQ_MESSAGE(UINT64 sessionID, MSG_PACKET_CS_CHAT_REQ_MESSAGE& body, BYTE* message);
+#endif
 	void Proc_SessionJoin(UINT64 sessionID);
 	void Proc_SessionRelease(UINT64 sessionID);
 	//void Proc_REQ_HEARTBEAT();

@@ -156,6 +156,32 @@ void ChattingServer::OnRecv(UINT64 sessionID, JBuffer& recvBuff)
 
 	switch (type)
 	{
+#if defined(MOW_CHAT_SERVER_MODE)
+	case REQ_LOGIN:
+	{
+		recvBuff.Dequeue(message->GetDequeueBufferPtr(), sizeof(MSG_REQ_LOGIN));
+		message->DirectMoveEnqueueOffset(sizeof(MSG_REQ_LOGIN));
+	}
+	break;
+	case REQ_ENTER_MATCH:
+	{
+		recvBuff.Dequeue(message->GetDequeueBufferPtr(), sizeof(MSG_REQ_ENTER_MATCH));
+		message->DirectMoveEnqueueOffset(sizeof(MSG_REQ_ENTER_MATCH));
+	}
+	break;
+	case REQ_LEAVE_MATCH:
+	{
+		recvBuff.Dequeue(message->GetDequeueBufferPtr(), sizeof(MSG_REQ_LEAVE_MATCH));
+		message->DirectMoveEnqueueOffset(sizeof(MSG_REQ_LEAVE_MATCH));
+	}
+	break;
+	case SEND_CHAT_MSG:
+	{
+		recvBuff.Dequeue(message->GetDequeueBufferPtr(), sizeof(MSG_SEND_CHAT_MSG));
+		message->DirectMoveEnqueueOffset(sizeof(MSG_SEND_CHAT_MSG));
+	}
+	break;
+#else
 	case en_PACKET_CS_CHAT_REQ_LOGIN:
 	{
 		recvBuff.Dequeue(message->GetDequeueBufferPtr(), sizeof(MSG_PACKET_CS_CHAT_REQ_LOGIN));
@@ -182,6 +208,7 @@ void ChattingServer::OnRecv(UINT64 sessionID, JBuffer& recvBuff)
 		DebugBreak();
 	}
 	break;
+#endif
 #endif
 	default:
 #if defined(ASSERT)
@@ -227,6 +254,32 @@ void ChattingServer::OnRecv(UINT64 sessionID, JSerialBuffer& recvBuff)
 
 		JBuffer* message = AllocSerialBuff();
 		switch (type) {
+#if defined(MOW_CHAT_SERVER_MODE)
+		case REQ_LOGIN:
+		{
+			recvBuff.Dequeue(message->GetDequeueBufferPtr(), sizeof(MSG_REQ_LOGIN));
+			message->DirectMoveEnqueueOffset(sizeof(MSG_REQ_LOGIN));
+		}
+		break;
+		case REQ_ENTER_MATCH:
+		{
+			recvBuff.Dequeue(message->GetDequeueBufferPtr(), sizeof(MSG_REQ_ENTER_MATCH));
+			message->DirectMoveEnqueueOffset(sizeof(MSG_REQ_ENTER_MATCH));
+		}
+		break;
+		case REQ_LEAVE_MATCH:
+		{
+			recvBuff.Dequeue(message->GetDequeueBufferPtr(), sizeof(MSG_REQ_LEAVE_MATCH));
+			message->DirectMoveEnqueueOffset(sizeof(MSG_REQ_LEAVE_MATCH));
+		}
+		break;
+		case SEND_CHAT_MSG:
+		{
+			recvBuff.Dequeue(message->GetDequeueBufferPtr(), sizeof(MSG_SEND_CHAT_MSG));
+			message->DirectMoveEnqueueOffset(sizeof(MSG_SEND_CHAT_MSG));
+		}
+		break;
+#else
 		case en_PACKET_CS_CHAT_REQ_LOGIN:
 		{
 			recvBuff.Dequeue(message->GetDequeueBufferPtr(), sizeof(MSG_PACKET_CS_CHAT_REQ_LOGIN));
@@ -253,6 +306,7 @@ void ChattingServer::OnRecv(UINT64 sessionID, JSerialBuffer& recvBuff)
 			DebugBreak();
 		}
 		break;
+#endif
 #endif
 		default:
 #if defined(ASSERT)
@@ -295,6 +349,194 @@ void ChattingServer::OnPrintLogOnConsole()
 	cout << "[Account] Number of Allocated Account   : " << m_AccountPool->GetAllocatedObjectCnt() << std::endl;
 }
 
+#if defined(MOW_CHAT_SERVER_MODE)
+void ChattingServer::ProcessMessage(uint64 sessionID, JBuffer* msg) {
+	WORD type;
+	msg->Peek(&type);
+
+	switch (type)
+	{
+	case en_SESSION_JOIN:
+		Proc_SessionJoin(sessionID);
+		break;
+	case en_SESSION_RELEASE:
+		Proc_SessionRelease(sessionID);
+		break;
+	case REQ_LOGIN:
+	{
+		MSG_REQ_LOGIN* loginReqMsg = (MSG_REQ_LOGIN*)msg->GetDequeueBufferPtr();
+		Proc_REQ_LOGIN(sessionID, *loginReqMsg);
+	}
+	break;
+	case REQ_ENTER_MATCH:
+	{
+		MSG_REQ_ENTER_MATCH* enterMsg = (MSG_REQ_ENTER_MATCH*)msg->GetDequeueBufferPtr();
+		Proc_REQ_ENTER_MATCH(sessionID, *enterMsg);
+	}
+	break;
+	case REQ_LEAVE_MATCH:
+	{
+		MSG_REQ_LEAVE_MATCH* leaveMsg = (MSG_REQ_LEAVE_MATCH*)msg->GetDequeueBufferPtr();
+		Proc_REQ_LEAVE_MATCH(sessionID, *leaveMsg);
+	}
+	break;
+	case SEND_CHAT_MSG:
+	{
+		MSG_SEND_CHAT_MSG* chatMsg = (MSG_SEND_CHAT_MSG*)msg->GetDequeueBufferPtr();
+		chatMsg->ChatMsg[chatMsg->Length / 2] = NULL;
+		Proc_SEND_CHAT_MSG(sessionID, *chatMsg);
+	}
+	break;
+	//case en_PACKET_CS_CHAT_REQ_HEARTBEAT:
+	//{..} break;
+	default:
+		break;
+	}
+
+	//delete msg;
+	FreeSerialBuff(msg);
+	m_UpdateThreadTransaction++;
+}
+
+void ChattingServer::Proc_REQ_LOGIN(SessionID64 sessionID, const MSG_REQ_LOGIN& body)
+{
+	bool releaseBeforeLogin = false;
+	{
+		if (m_LoginWaitSessions.find(sessionID) != m_LoginWaitSessions.end()) {
+			m_LoginWaitSessions.erase(sessionID);
+		}
+		else {
+			// 로그인 요청 메시지 이전에 세션이 종료될 수 있다.
+			releaseBeforeLogin = true;
+		}
+	}
+
+	if (!releaseBeforeLogin) {
+		UINT16 loginStatus = enReplyCode::LOGIN_SUCCESS;
+
+		std::string accountNoStr = to_string(body.AccountNo);
+		std::string token = "";
+
+		if (m_ConnToRedis) {
+			RedisCpp::CRedisConn* redisConn = NULL;
+			while (true) {	// redisConnect 획득까지 폴링
+				m_RedisConnPool.Dequeue(redisConn);
+				if (redisConn != NULL) {
+					break;
+				}
+			}
+
+			if (!redisConn->get(accountNoStr, token)) {
+				loginStatus = enReplyCode::LOGIN_FAIL;
+				DebugBreak();
+			}
+			else {
+				uint32_t ret;
+				if (!redisConn->del(accountNoStr, ret)) {
+					loginStatus = enReplyCode::LOGIN_FAIL;
+					DebugBreak();
+				}
+			}
+			m_RedisConnPool.Enqueue(redisConn);
+
+			if (memcmp(body.Token, token.c_str(), sizeof(body.Token)) != 0) {
+				loginStatus = enReplyCode::LOGIN_FAIL;
+				DebugBreak();
+			}
+		}
+		if (loginStatus == enReplyCode::LOGIN_FAIL) {
+			Send_REPLY_CODE(sessionID, loginStatus);
+			return;
+		}
+
+		stAccoutInfo* accountInfo = m_AccountPool->Alloc();
+		if (accountInfo == NULL) {
+#if defined(ASSERT)
+			DebugBreak();
+#endif
+			accountInfo = new stAccoutInfo;
+		}
+		memcpy(accountInfo, &body.AccountNo, sizeof(stAccoutInfo));
+		accountInfo->X = -1;
+
+		m_LobbyMap.insert(sessionID);
+		m_SessionIdAccountMap.insert({ sessionID, accountInfo });
+
+		Send_REPLY_CODE(sessionID, loginStatus);
+	}
+}
+
+void ChattingServer::Proc_REQ_ENTER_MATCH(SessionID64 sessionID, const MSG_REQ_ENTER_MATCH& body)
+{
+	if (m_LobbyMap.find(sessionID) == m_LobbyMap.end()) {
+		DebugBreak();
+		return;
+	}
+
+	m_LobbyMap.erase(sessionID);
+
+	auto iter = m_MatchRoomMap.find(body.RoomID);
+	if (iter == m_MatchRoomMap.end()) {
+		auto ret = m_MatchRoomMap.insert({ body.RoomID, set<SessionID64>() });
+		iter = ret.first;
+	}
+	iter->second.insert(sessionID);
+	m_SessionMatchMap[sessionID] = body.RoomID;
+}
+
+void ChattingServer::Proc_REQ_LEAVE_MATCH(SessionID64 sessionID, const MSG_REQ_LEAVE_MATCH& body)
+{
+	auto iter = m_SessionMatchMap.find(sessionID);
+	if (iter == m_SessionMatchMap.end()) {
+		DebugBreak();
+		return;
+	}
+	uint16 roomID = iter->second;
+
+	m_MatchRoomMap[roomID].erase(sessionID);
+
+	m_SessionMatchMap.erase(sessionID);
+	m_LobbyMap.insert(sessionID);
+}
+
+void ChattingServer::Proc_SEND_CHAT_MSG(SessionID64 sessionID, const MSG_SEND_CHAT_MSG& body)
+{
+	uint16 accountID = m_SessionIdAccountMap[sessionID]->AccountNo;
+
+	auto iter = m_SessionMatchMap.find(sessionID);
+	if (iter != m_SessionMatchMap.end()) {
+		auto riter = m_MatchRoomMap.find(iter->second);
+		const auto& siter = riter->second;
+
+		JBuffer* chatMsg = AllocSerialSendBuff(sizeof(MSG_RECV_CHAT_MSG));
+		*chatMsg << (uint16)enPacketType::RECV_CHAT_MSG;
+		*chatMsg << body.ChatMsg;
+		*chatMsg << body.Length;
+		*chatMsg << accountID;
+
+		for (auto session : siter) {
+			AddRefSerialBuff(chatMsg);
+			if (!SendPacket(session, chatMsg)) {
+				FreeSerialBuff(chatMsg);
+			}
+		}
+
+		FreeSerialBuff(chatMsg);
+	}
+}
+
+void ChattingServer::Send_REPLY_CODE(SessionID64 sessionID, uint16 replyCode)
+{
+	JBuffer* reply = AllocSerialSendBuff(sizeof(MSG_REPLY_CODE));
+	*reply << (uint16)enPacketType::REPLY_CODE;
+	*reply << replyCode;
+
+	if (!SendPacket(sessionID, reply)) {
+		FreeSerialBuff(reply);
+	}
+}
+
+#else
 void ChattingServer::ProcessMessage(uint64 sessionID, JBuffer* msg)
 {
 	WORD type;
@@ -498,6 +740,9 @@ void ChattingServer::Proc_REQ_MESSAGE(UINT64 sessionID, MSG_PACKET_CS_CHAT_REQ_M
 	FreeSerialBuff(reply);
 }
 
+
+#endif
+
 void ChattingServer::Proc_SessionJoin(UINT64 sessionID)
 {
 #if defined(ASSERT)
@@ -520,12 +765,17 @@ void ChattingServer::Proc_SessionRelease(UINT64 sessionID)
 			return;
 		}
 
-		// account 및 섹터 자료구조 정리
+		// account 및 섹터 / 매치룸 자료구조 정리
 		stAccoutInfo* accountInfo = m_SessionIdAccountMap[sessionID];
+#if defined(MOW_CHAT_SERVER_MODE)
+		m_LobbyMap.erase(sessionID);
+		m_SessionIdAccountMap.erase(sessionID);
+#else
 		if (accountInfo->X >= 0 && accountInfo->X <= dfSECTOR_X_MAX && accountInfo->Y >= 0 && accountInfo->Y <= dfSECTOR_Y_MAX) {
 			std::map<UINT64, stAccoutInfo*>& sector = m_SectorMap[accountInfo->Y][accountInfo->X];
 			sector.erase(sessionID);
 		}
+#endif
 		m_SessionIdAccountMap.erase(sessionID);
 		m_AccountPool->Free(accountInfo);
 	}
@@ -585,19 +835,19 @@ UINT __stdcall ChattingServer::ProcessThreadFunc(void* arg)
 			}
 		}
 #else	// PROCESSING_THREAD_POLLING_SINGLE_MESSAGE_QUEUE
-//		LONG messageQueueSize = server->m_MessageLockFreeQueue.GetSize();
-//		if (messageQueueSize > 0) {
-//			--messageQueueSize;
-//
-//			pair<SessionTimeStamp, JBuffer*> jobMsg;
-//			if (!server->m_MessageLockFreeQueue.Dequeue(jobMsg, true)) {
-//#if defined(ASSERT)
-//				DebugBreak();
-//#endif
-//				break;
-//			}
-//			server->ProcessMessage(jobMsg.first.sessionID, jobMsg.second);
-//		}
+		//		LONG messageQueueSize = server->m_MessageLockFreeQueue.GetSize();
+		//		if (messageQueueSize > 0) {
+		//			--messageQueueSize;
+		//
+		//			pair<SessionTimeStamp, JBuffer*> jobMsg;
+		//			if (!server->m_MessageLockFreeQueue.Dequeue(jobMsg, true)) {
+		//#if defined(ASSERT)
+		//				DebugBreak();
+		//#endif
+		//				break;
+		//			}
+		//			server->ProcessMessage(jobMsg.first.sessionID, jobMsg.second);
+		//		}
 		while (server->m_MessageLockFreeQueue.GetSize() > 0) {
 			pair<SessionTimeStamp, JBuffer*> jobMsg;
 			if (!server->m_MessageLockFreeQueue.Dequeue(jobMsg, true)) {
@@ -606,7 +856,7 @@ UINT __stdcall ChattingServer::ProcessThreadFunc(void* arg)
 #endif
 				break;
 			}
-			server->ProcessMessage(jobMsg.first.sessionID, jobMsg.second);			
+			server->ProcessMessage(jobMsg.first.sessionID, jobMsg.second);
 		}
 #endif
 	}
